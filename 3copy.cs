@@ -1,5 +1,5 @@
 using System;
-using System.Text;
+using System.Reflection;
 using System.Collections.Generic;
 
 using Bogus;
@@ -20,8 +20,9 @@ namespace RandomData
       string language = mapLanguage(args[0]);
       int personsCount = Convert.ToInt32(args[1]);
       double errorCount = getErrorCount(args);
+      List<RandomData.Person> generatedPersons = generatePersons(language, personsCount);
 
-      printPersons(generatePersons(language, personsCount), errorCount, language);
+      printRecords(ref generatedPersons, errorCount, language);
 
       Console.ReadKey();
     }
@@ -63,44 +64,49 @@ namespace RandomData
         .RuleFor(x => x.Phone, f => f.Phone.PhoneNumber());
     }
 
-    private static string createRecord(string cleanRecord, double errorCount, string language)
+    private static void createRecord(ref List<Person> persons, int i, double errorCount, string language)
     {
-      StringBuilder record = new StringBuilder(cleanRecord);
       ErrorDelegate[] ErrorFunctions = new ErrorDelegate[3] { insertSymbol, removeSymbol, replaceSymbol };
 
-      addError(ErrorFunctions, record, errorCount, language);
-
-      return record.ToString();
+      addError(ErrorFunctions, ref persons, i, errorCount, language);
     }
-    private delegate System.Text.StringBuilder ErrorDelegate(System.Text.StringBuilder record, string language);
-
-    private static System.Text.StringBuilder insertSymbol(System.Text.StringBuilder record, string language)
+    private static FieldInfo getRandomField(RandomData.Person cleanRecord)
     {
       Random rnd = new Random();
+      string[] fields = { "Address", "Name", "Phone", };
+      string randomField = fields[rnd.Next(0, 2)];
+      FieldInfo field = typeof(Person).GetField(randomField);
 
+      return field;
+    }
+    private delegate string ErrorDelegate(string record, string language);
+
+    private static string insertSymbol(string record, string language)
+    {
+      Random rnd = new Random();
       CharArray[] charRange = new CharArray[3] { numberChar, upperAlphabetChar, lowerAlphabetChar };
-      char symbol = charRange[rnd.Next(0, 2)](localCharRange(language));
+      string symbol = charRange[rnd.Next(0, 2)](localCharRange(language));
 
       return record.Insert(rnd.Next(0, record.Length - 1), symbol);
     }
-    private delegate char CharArray(int[] charArray);
-    private static char numberChar(int[] charArray)
+    private delegate string CharArray(int[] charArray);
+    private static string numberChar(int[] charArray)
     {
       Random rnd = new Random();
 
-      return (char)rnd.Next(charArray[0], charArray[1]);
+      return rnd.Next(charArray[0], charArray[1]).ToString();
     }
-    private static char upperAlphabetChar(int[] charArray)
+    private static string upperAlphabetChar(int[] charArray)
     {
       Random rnd = new Random();
 
-      return (char)rnd.Next(charArray[2], charArray[3]);
+      return rnd.Next(charArray[2], charArray[3]).ToString();
     }
-    private static char lowerAlphabetChar(int[] charArray)
+    private static string lowerAlphabetChar(int[] charArray)
     {
       Random rnd = new Random();
 
-      return (char)rnd.Next(charArray[4], charArray[5]);
+      return rnd.Next(charArray[4], charArray[5]).ToString();
     }
     private static int[] localCharRange(string language)
     {
@@ -114,40 +120,67 @@ namespace RandomData
       return localCharRange[language];
     }
 
-    private static System.Text.StringBuilder removeSymbol(System.Text.StringBuilder record, string language = "")
+    private static string removeSymbol(string record, string language = "")
     {
       Random rnd = new Random();
 
       return record.Remove(rnd.Next(0, record.Length - 1), 1);
     }
-    private static System.Text.StringBuilder replaceSymbol(System.Text.StringBuilder record, string language = "")
+    private static string replaceSymbol(string record, string language = "")
     {
       int rnd = new Random().Next(0, record.Length - 1);
       char replacedSymbol = record[rnd];
 
       record.Remove(rnd, 1);
-      record.Insert(rnd + 1, replacedSymbol);
+      record.Insert(rnd + 1, replacedSymbol.ToString());
 
       return record;
     }
 
-    private static System.Text.StringBuilder addError(ErrorDelegate[] ErrorFunctions, StringBuilder errorRecord, double errorCount, string language)
+    private static void addError(ErrorDelegate[] ErrorFunctions, ref List<Person> persons, int i, double errorCount, string language)
     {
-      return errorCount > 1 ? repeatAddError(ErrorFunctions, errorRecord, errorCount, language) : errorRecord;
+      if (errorCount > 1)
+      {
+        repeatAddError(ErrorFunctions, ref persons, i, errorCount, language);
+      }
+      else if (errorCount != 0.0)
+        setMultiError(ErrorFunctions, ref persons, i, errorCount, language);
     }
-    private static System.Text.StringBuilder repeatAddError(ErrorDelegate[] ErrorFunctions, StringBuilder errorRecord, double errorCount, string language)
+    private static void repeatAddError(ErrorDelegate[] ErrorFunctions, ref List<Person> persons, int i, double errorCount, string language)
+    {
+      setError(ErrorFunctions, ref persons, i, errorCount, language);
+      addError(ErrorFunctions, ref persons, i, errorCount - 1, language);
+    }
+    private static void setMultiError(ErrorDelegate[] ErrorFunctions, ref List<Person> persons, int i, double errorCount, string language)
     {
       Random rnd = new Random();
-      errorRecord = ErrorFunctions[rnd.Next(0, 2)](errorRecord, language);
 
-      return addError(ErrorFunctions, errorRecord, errorCount - 1, language);
+      try
+      {
+        int randomIndex = i + rnd.Next(0, (int)Math.Round(1 / errorCount));
+        setError(ErrorFunctions, ref persons, randomIndex, errorCount - 1, language);
+      }
+      catch
+      {
+        int randomIndex = i + rnd.Next(0, persons.Count - i - 1);
+        setError(ErrorFunctions, ref persons, randomIndex, errorCount - 1, language);
+      }
+    }
+    private static void setError(ErrorDelegate[] ErrorFunctions, ref List<Person> persons, int i, double errorCount, string language)
+    {
+      Random rnd = new Random();
+      Person randomPerson = persons[i];
+      FieldInfo randomField = getRandomField(randomPerson);
+      string fieldValue = ErrorFunctions[rnd.Next(0, 2)](randomField.GetValue(randomPerson).ToString(), language);
+      randomField.SetValue(randomPerson, fieldValue);
     }
 
-    private static void printPersons(List<Person> persons, double errorCount, string language)
+    private static void printRecords(ref List<Person> persons, double errorCount, string language)
     {
-      foreach (var person in persons)
+      for (int i = 0; i < persons.Count - 1; i++)
       {
-        Console.WriteLine(createRecord($"{person.Name}; {person.Address}; {person.Phone}", errorCount, language));
+        createRecord(ref persons, i, errorCount, language);
+        Console.WriteLine($"{persons[i].Name}; {persons[i].Address}; {persons[i].Phone}");
       }
     }
   }
